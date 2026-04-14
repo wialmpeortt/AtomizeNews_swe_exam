@@ -1,4 +1,4 @@
-@startuml SequenceDiagram_VerifiableNews
+@startuml SequenceDiagram_LocalVectorEngine
 
 skinparam backgroundColor white
 skinparam sequenceArrowThickness 2
@@ -13,51 +13,78 @@ skinparam sequenceMessageAlign center
 skinparam noteBorderColor #3B4A9C
 skinparam noteBackgroundColor #FFF9E6
 
-title Verifiable News - UML Sequence Diagram\nArticle Verification Flow
+title LocalVectorEngine — UML Sequence Diagram\nRAG pipeline: Indexing (once) + Query (per question)
 
 actor User
-participant "VerificationEngine" as VE
-participant "OllamaLLMService\n(ILLMService)" as LLM
-participant "OnnxEmbeddingService\n(IEmbeddingService)" as EMB
-participant "BLiteVectorStore\n(IVectorStore)" as DB
+participant "Program\n(Demo host)" as P
+participant "IChunkingService" as CHK
+participant "IEmbeddingService" as EMB
+participant "IVectorStore\n(BLite HNSW)" as DB
 
-' ─── Phase 1: Claim Atomization ───────────────────────────
-User -> VE : VerifyArticle(newsArticle)
-activate VE
+' ═════════════════════════════════════════════════════════
+' PHASE 1 — INDEXING (run once per document)
+' ═════════════════════════════════════════════════════════
+== Phase 1 — Indexing ==
 
-note over VE : Phase 1 - Claim Atomization
+User -> P : IndexDocument(path)
+activate P
 
-VE -> LLM : ExtractClaims(article.Content)
-activate LLM
-LLM --> VE : List<AtomicClaim> [JSON array]
-deactivate LLM
+P -> P : text = File.ReadAllText(path)
 
-note over VE : Phase 2 - Embedding Claims
+P -> CHK : Chunk(documentId, text, source)
+activate CHK
+CHK --> P : IEnumerable<DocumentChunk>
+deactivate CHK
 
-' ─── Phase 2: Embedding each claim ───────────────────────
-loop for each AtomicClaim
-    VE -> EMB : GenerateEmbedding(claim.Text)
+loop for each chunk
+    P -> EMB : EmbedAsync(chunk.Text, ct)
     activate EMB
-    EMB --> VE : float[] embeddingVector
+    EMB --> P : float[] embedding (384 dims)
     deactivate EMB
-    VE -> VE : claim.EmbeddingVector = vector
-end
 
-' ─── Phase 3: Vector Search ────────────────────────────────
-note over VE : Phase 3 - Vector Similarity Search (HNSW)
-
-loop for each AtomicClaim
-    VE -> DB : SearchAsync(claim.EmbeddingVector, topK=5)
+    P -> DB : StoreChunkAsync(chunk, embedding, ct)
     activate DB
-    DB --> VE : List<DocumentChunk> (top-K matches)
+    DB --> P : (stored + HNSW updated)
     deactivate DB
-    VE -> VE : Build ClaimVerificationResult
 end
 
-' ─── Return Results ────────────────────────────────────────
-VE --> User : List<ClaimVerificationResult>
-deactivate VE
+P --> User : N chunks indexed
+deactivate P
 
-note over User : Each result links a claim\nto its supporting evidence
+note over User, DB #F8F9FF
+    Indexing is done **once per document**.
+    The HNSW index is then persistent on disk.
+end note
+
+' ═════════════════════════════════════════════════════════
+' PHASE 2 — QUERY (run for every user question)
+' ═════════════════════════════════════════════════════════
+== Phase 2 — Query ==
+
+User -> P : Query("...natural-language question...")
+activate P
+
+P -> EMB : EmbedAsync(question, ct)
+activate EMB
+EMB --> P : float[] queryVector (384 dims)
+deactivate EMB
+
+P -> DB : SearchAsync(queryVector, topK=5, ct)
+activate DB
+note right of DB
+    HNSW approximate nearest-neighbor search
+    over all stored embeddings — O(log N).
+end note
+DB --> P : IReadOnlyList<SearchResult>\n(chunk + similarity score)
+deactivate DB
+
+P --> User : Top-K passages + citations
+deactivate P
+
+note over User, DB #F8F9FF
+    The retrieved passages are the **context**
+    an LLM would use to produce a grounded answer
+    (the LLM step is outside this engine's scope).
+end note
 
 @enduml

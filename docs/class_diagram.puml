@@ -1,4 +1,4 @@
-@startuml ClassDiagram_VerifiableNews
+@startuml ClassDiagram_LocalVectorEngine
 
 skinparam classAttributeIconSize 0
 skinparam classFontStyle Bold
@@ -8,93 +8,88 @@ skinparam class {
     BorderColor #3B4A9C
     ArrowColor #3B4A9C
 }
-
-title Verifiable News - UML Class Diagram
-
-' ─── Interfaces ───────────────────────────────────────────
-interface IEmbeddingService {
-    + GenerateEmbedding(text: string) : float[]
+skinparam package {
+    BackgroundColor #F8F9FF
+    BorderColor #3B4A9C
 }
 
-interface IVectorStore {
-    + IndexChunk(chunk: DocumentChunk) : void
-    + SearchAsync(queryVector: float[], topK: int) : List<DocumentChunk>
+title LocalVectorEngine — UML Class Diagram\nCore library + Demo host
+
+' ─── Core library ────────────────────────────────────────
+package "LocalVectorEngine.Core" as Core {
+
+    ' ─── Models ──────────────────────────────────────────
+    class "DocumentChunk\n<<record>>" as DocumentChunk {
+        + DocumentId : string
+        + ChunkIndex : int
+        + Text : string
+        + Source : string
+    }
+
+    class "SearchResult\n<<record>>" as SearchResult {
+        + Chunk : DocumentChunk
+        + Score : float
+    }
+
+    ' ─── Interfaces ──────────────────────────────────────
+    interface IChunkingService {
+        + Chunk(documentId: string, text: string, source: string) : IEnumerable<DocumentChunk>
+    }
+
+    interface IEmbeddingService {
+        + EmbedAsync(text: string, ct: CancellationToken) : Task<float[]>
+    }
+
+    interface IVectorStore {
+        + StoreChunkAsync(chunk: DocumentChunk, embedding: float[], ct: CancellationToken) : Task
+        + SearchAsync(queryEmbedding: float[], topK: int, ct: CancellationToken) : Task<IReadOnlyList<SearchResult>>
+    }
 }
 
-' ─── Core Entities ────────────────────────────────────────
-class NewsArticle {
-    + Id : string
-    + Title : string
-    + Content : string
-    + SourceUrl : string
-    + PublishedAt : DateTime
-    + Atomize(llm: ILLMService) : List<AtomicClaim>
+' ─── Planned implementations ─────────────────────────────
+package "LocalVectorEngine.Core (implementations)" as Impl {
+
+    class "SlidingWindowChunkingService\n<<planned — Issue #21>>" as ChunkImpl #FFF9E6 {
+        - chunkSize : int
+        - overlap : int
+        + Chunk(..) : IEnumerable<DocumentChunk>
+    }
+
+    class "OnnxEmbeddingService\n<<planned — Issue #10>>" as OnnxImpl #FFF9E6 {
+        - modelPath : string
+        - session : InferenceSession
+        + EmbedAsync(text, ct) : Task<float[]>
+    }
+
+    class "BLiteVectorStore\n<<planned — Issue #11>>" as BLiteImpl #FFF9E6 {
+        - dbPath : string
+        - collection : Collection
+        + StoreChunkAsync(..) : Task
+        + SearchAsync(..) : Task<IReadOnlyList<SearchResult>>
+    }
 }
 
-class AtomicClaim {
-    + Id : string
-    + Text : string
-    + ArticleId : string
-    + EmbeddingVector : float[]
-    + Embed(service: IEmbeddingService) : void
+' ─── Demo host ──────────────────────────────────────────
+package "LocalVectorEngine.Demo" as Demo {
+    class Program {
+        + Main(args: string[]) : Task
+    }
 }
 
-class DocumentChunk {
-    + Id : string
-    + SourceDocumentName : string
-    + Content : string
-    + EmbeddingVector : float[]
-    + Embed(service: IEmbeddingService) : void
-}
+' ─── Relationships ──────────────────────────────────────
+SearchResult --> DocumentChunk : wraps >
 
-class ClaimVerificationResult {
-    + ClaimId : string
-    + ClaimText : string
-    + SupportingChunks : List<DocumentChunk>
-    + SimilarityScores : List<float>
-    + IsVerified : bool
-}
+ChunkImpl ..|> IChunkingService
+OnnxImpl  ..|> IEmbeddingService
+BLiteImpl ..|> IVectorStore
 
-' ─── Services ─────────────────────────────────────────────
-interface ILLMService {
-    + ExtractClaims(articleText: string) : List<AtomicClaim>
-}
+IChunkingService  ..> DocumentChunk : produces >
+IEmbeddingService ..> "float[]"      : produces >
+IVectorStore      ..> DocumentChunk  : persists >
+IVectorStore      ..> SearchResult   : returns >
 
-class OllamaLLMService {
-    - modelName : string
-    - endpointUrl : string
-    + ExtractClaims(articleText: string) : List<AtomicClaim>
-}
-
-class OnnxEmbeddingService {
-    - modelPath : string
-    + GenerateEmbedding(text: string) : float[]
-}
-
-class BLiteVectorStore {
-    - dbPath : string
-    + IndexChunk(chunk: DocumentChunk) : void
-    + SearchAsync(queryVector: float[], topK: int) : List<DocumentChunk>
-}
-
-class VerificationEngine {
-    - llmService : ILLMService
-    - embeddingService : IEmbeddingService
-    - vectorStore : IVectorStore
-    + VerifyArticle(article: NewsArticle) : List<ClaimVerificationResult>
-}
-
-' ─── Relationships ────────────────────────────────────────
-NewsArticle "1" --> "1..*" AtomicClaim : atomizes >
-AtomicClaim "1" --> "1" ClaimVerificationResult : produces >
-ClaimVerificationResult "1" --> "0..*" DocumentChunk : supported by >
-
-OllamaLLMService ..|> ILLMService
-OnnxEmbeddingService ..|> IEmbeddingService
-BLiteVectorStore ..|> IVectorStore
-
-VerificationEngine --> ILLMService : uses
-VerificationEngine --> IEmbeddingService : uses
-VerificationEngine --> IVectorStore : uses
+Program --> IChunkingService  : uses
+Program --> IEmbeddingService : uses
+Program --> IVectorStore      : uses
 
 @enduml
