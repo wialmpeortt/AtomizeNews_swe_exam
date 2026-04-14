@@ -1,39 +1,39 @@
-# LocalVectorEngine — Motore di ricerca vettoriale locale per RAG
+# LocalVectorEngine — Local Vector Search Engine for RAG
 
-**Corso:** Software Engineering — H-Farm College
-**Autore:** William
-**Progetto:** Zucchetti-7 — motore di ricerca vettoriale locale richiesto dai progetti *AI Document Q&A (RAG)* e *BLite Mobile + AI*
-**Timeline:** 4 settimane (Agile Sprint)
+**Course:** Software Engineering — H-Farm College
+**Author:** William
+**Project:** Zucchetti-7 — local vector search engine consumed by the *AI Document Q&A (RAG)* and *BLite Mobile + AI* projects
+**Timeline:** 4 weeks (Agile sprint)
 
-## Problema
+## Problem
 
-Gli LLM hanno un knowledge cut-off e non conoscono i tuoi documenti. Il pattern **RAG** (Retrieval-Augmented Generation) risolve il problema in due fasi: prima si indicizzano i documenti trasformandoli in vettori di embedding; poi, a ogni domanda, si recuperano i chunk più simili e li si passano all'LLM come contesto di risposta.
+LLMs have a knowledge cut-off and don't know about *your* documents. The **RAG** (Retrieval-Augmented Generation) pattern solves this in two phases: first you index the documents by turning them into embedding vectors; then, for every question, you retrieve the most similar chunks and pass them to the LLM as grounded context.
 
-Questo repository fornisce **il motore di ricerca vettoriale** — la parte "retrieval" del RAG — come libreria riutilizzabile. È progettato per essere consumato da due progetti separati:
+This repository provides **the vector search engine** — the "retrieval" half of RAG — as a reusable library. It is designed to be consumed by two separate projects:
 
-- *AI Document Q&A* — applicazione RAG che interroga documenti PDF/TXT/MD
-- *BLite Mobile + AI* — app .NET MAUI che indicizza documenti in locale sullo smartphone
+- *AI Document Q&A* — a RAG application that answers questions over PDF/TXT/MD documents
+- *BLite Mobile + AI* — a .NET MAUI app that indexes documents locally on a phone
 
-## Architettura
+## Architecture
 
-Il repository è organizzato in **una libreria condivisa** + **una demo console** che la esercita end-to-end.
+The repository is organised as **one shared library** plus **one console demo** that exercises it end-to-end.
 
 ```
 src/
-├── LocalVectorEngine.Core/          ← libreria pubblica (il "prodotto")
+├── LocalVectorEngine.Core/          ← public library (the "product")
 │   ├── Interfaces/
-│   │   ├── IChunkingService.cs      ← spezza un documento in chunk
-│   │   ├── IEmbeddingService.cs     ← testo → float[] (vettore)
-│   │   └── IVectorStore.cs          ← persistenza + ricerca HNSW
+│   │   ├── IChunkingService.cs      ← splits a document into chunks
+│   │   ├── IEmbeddingService.cs     ← text → float[] (vector)
+│   │   └── IVectorStore.cs          ← persistence + HNSW search
 │   └── Models/
-│       ├── DocumentChunk.cs         ← record immutabile del chunk
-│       └── SearchResult.cs          ← chunk + score di similarità
+│       ├── DocumentChunk.cs         ← immutable chunk record
+│       └── SearchResult.cs          ← chunk + similarity score
 │
-└── LocalVectorEngine.Demo/          ← console app che orchestra la pipeline
+└── LocalVectorEngine.Demo/          ← console app that wires the pipeline
     └── Program.cs
 ```
 
-### Contratti (Core)
+### Core contracts
 
 ```csharp
 public interface IChunkingService
@@ -56,85 +56,85 @@ public record DocumentChunk(string DocumentId, int ChunkIndex, string Text, stri
 public record SearchResult(DocumentChunk Chunk, float Score);
 ```
 
-I metodi asincroni accettano `CancellationToken` per rispettare la spec Zucchetti-7 e permettere timeout/abort sia in contesto server che mobile.
+The async methods take a `CancellationToken` to match the Zucchetti-7 spec and to make timeout/abort behaviour explicit on both server and mobile.
 
-## Pipeline RAG
+## RAG pipeline
 
 ```
-INDEXING (una tantum per documento)
+INDEXING (run once per document)
 
-  Documento testuale
+  Source document
         │
         ▼
-  IChunkingService         ── split ~512 token, overlap ~50
+  IChunkingService         ── split ~512 tokens, overlap ~50
         │
         ▼
-  IEmbeddingService        ── testo → float[384]
+  IEmbeddingService        ── text → float[384]
         │
         ▼
-  IVectorStore.Store       ── persist in BLite (HNSW)
+  IVectorStore.Store       ── persist into BLite (HNSW)
 
 
-QUERY (per ogni domanda utente)
+QUERY (run for every user question)
 
-  Domanda
+  Question
         │
         ▼
-  IEmbeddingService        ── domanda → float[384]
+  IEmbeddingService        ── question → float[384]
         │
         ▼
-  IVectorStore.Search      ── HNSW: top-K chunk più simili
+  IVectorStore.Search      ── HNSW: top-K most similar chunks
         │
         ▼
-  SearchResult[] (chunk + score)  ── pronti da dare in pasto a un LLM
+  SearchResult[] (chunk + score)  ── ready to feed an LLM as context
 ```
 
-## Stack tecnico
+## Tech stack
 
-| Componente | Tecnologia | Note |
+| Component | Technology | Notes |
 |---|---|---|
 | Runtime | .NET 10 | |
-| Embedding | ONNX Runtime + `all-MiniLM-L6-v2` | 384 dimensioni, locale |
-| Vector DB | BLite 4.3.0 | Indice HNSW integrato |
-| Diagrammi | PlantUML | Sorgente in `docs/` |
+| Embedding | ONNX Runtime + `all-MiniLM-L6-v2` | 384-dim, runs locally |
+| Vector DB | BLite 4.3.0 | Built-in HNSW index |
+| Diagrams | PlantUML | Sources in `docs/` |
 
-Nessuna chiamata a servizi cloud: tutto il retrieval è on-device.
+No cloud calls — all retrieval runs on-device.
 
-## Stato implementazione
+## Implementation status
 
-| Componente | Interfaccia | Implementazione |
+| Component | Interface | Implementation |
 |---|---|---|
 | Chunking | ✅ `IChunkingService` | ⏳ Issue #21 |
 | Embedding | ✅ `IEmbeddingService` | ⏳ Issue #10 — `OnnxEmbeddingService` |
 | Vector store | ✅ `IVectorStore` | ⏳ Issue #11 — `BLiteVectorStore` |
-| Demo console | — | ⏳ pipeline end-to-end |
+| Demo console | — | ⏳ end-to-end pipeline |
 
-## Come eseguire
+## How to run
 
 ```bash
 # Build
 dotnet build
 
-# Esegui la demo console
+# Run the console demo
 dotnet run --project src/LocalVectorEngine.Demo
 ```
 
-Il modello ONNX `all-MiniLM-L6-v2.onnx` va scaricato in `models/` (ignorato da git per peso: 86 MB).
+The `all-MiniLM-L6-v2.onnx` model must be downloaded into `models/` (gitignored because of its size: 86 MB).
 
-## Struttura repository
+## Repository layout
 
 ```
 Exam/
-├── src/                          codice
-├── tests/                        test (in progresso)
-├── docs/                         diagrammi UML (PlantUML + PNG)
-├── models/                       modello ONNX (gitignored)
+├── src/                          source code
+├── tests/                        tests (in progress)
+├── docs/                         UML diagrams (PlantUML + PNG)
+├── models/                       ONNX model (gitignored)
 ├── LocalVectorEngine.slnx        solution file
 └── README.md
 ```
 
-## Documentazione di progetto
+## Project documentation
 
-- `docs/class_diagram.puml` — diagramma delle classi (Core + implementazioni previste)
-- `docs/sequence_diagram.puml` — sequence dei flussi di indexing e query
-- Il Kanban board su GitHub Projects tiene traccia del lavoro sprint-per-sprint.
+- `docs/class_diagram.puml` — class diagram (Core + planned implementations)
+- `docs/sequence_diagram.puml` — sequence diagrams of the indexing and query flows
+- The Kanban board on GitHub Projects tracks sprint-by-sprint progress.
