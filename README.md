@@ -1,10 +1,5 @@
 # LocalVectorEngine — Local Vector Search Engine for RAG
 
-**Course:** Software Engineering — H-Farm College
-**Author:** William
-**Project:** Zucchetti-7 — local vector search engine consumed by the *AI Document Q&A (RAG)* and *BLite Mobile + AI* projects
-**Timeline:** 4 weeks (Agile sprint)
-
 ## Problem
 
 LLMs have a knowledge cut-off and don't know about *your* documents. The **RAG** (Retrieval-Augmented Generation) pattern solves this in two phases: first you index the documents by turning them into embedding vectors; then, for every question, you retrieve the most similar chunks and pass them to the LLM as grounded context.
