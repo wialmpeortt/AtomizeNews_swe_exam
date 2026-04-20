@@ -1,0 +1,52 @@
+Retrieval-Augmented Generation (RAG) is an AI architecture pattern that enhances Large Language
+Model (LLM) responses by grounding them in external, up-to-date knowledge sources. Traditional
+LLMs are limited to what they learned during training and have a fixed knowledge cut-off. RAG
+solves this by adding a retrieval step before generation: relevant documents are fetched and
+passed to the model as context, allowing it to produce accurate, grounded answers.
+
+The RAG pipeline has two main phases. The first phase is indexing, which happens once per
+document. During indexing, the source document is split into overlapping chunks of roughly 400
+words each. Each chunk is then transformed into a dense vector (an embedding) using a neural
+network such as all-MiniLM-L6-v2, which produces 384-dimensional vectors. These embeddings
+capture the semantic meaning of the text, not just keyword matches. Finally, the chunk metadata
+and its embedding are stored in a vector database that supports efficient similarity search.
+
+The second phase is querying, which runs every time a user asks a question. The user's question
+is embedded using the same model, producing a query vector in the same 384-dimensional space.
+This query vector is then compared against all stored embeddings using an approximate nearest-
+neighbour search algorithm. The top-K most similar chunks are retrieved and presented as context
+to the LLM, which uses them to formulate a grounded, evidence-based answer.
+
+Vector similarity search is the core of the retrieval step. The most common metric is cosine
+similarity, which measures the angle between two vectors. When vectors are L2-normalized (unit
+length), cosine similarity reduces to a simple dot product, making computation extremely fast.
+For large-scale datasets, exact nearest-neighbour search becomes too slow, so approximate
+algorithms like HNSW (Hierarchical Navigable Small World) are used instead.
+
+HNSW is a graph-based algorithm that builds a multi-layer proximity graph. Each node represents
+a vector, and edges connect each node to its nearest neighbours. During search, the algorithm
+starts from an entry point at the top layer and navigates through the graph, moving to closer
+neighbours at each step, descending through layers for finer granularity. This approach achieves
+O(log N) search complexity while maintaining high recall, making it ideal for real-time
+retrieval in RAG systems.
+
+The embedding model used in this project is all-MiniLM-L6-v2, a compact Sentence Transformer
+model based on the BERT architecture. It produces 384-dimensional embeddings and supports a
+maximum sequence length of 512 tokens. The model is run locally using ONNX Runtime, which
+allows efficient inference without requiring a GPU or cloud API calls. The embedding process
+involves BERT WordPiece tokenization, an ONNX forward pass, mean pooling across the attention
+mask, and L2 normalization of the output vector.
+
+Chunking is the process of splitting a document into smaller, overlapping segments. The sliding
+window approach used here moves a fixed-size window (default: 400 words) across the document
+with a configurable overlap (default: 50 words). The overlap ensures that important context at
+chunk boundaries is not lost. Each chunk is assigned a sequential index and retains metadata
+linking it back to its source document.
+
+The vector store in this project uses BLite, a lightweight embedded database that supports
+built-in HNSW vector indexing. BLite stores chunks as BSON documents in a single database file
+on disk, making it ideal for local, self-contained applications. The store enforces a fixed
+embedding dimension of 384 and uses cosine distance as the similarity metric. Because the
+embeddings are L2-normalized upstream, the cosine similarity between any two vectors can be
+computed as their dot product, which the store calculates post-hoc since BLite's HNSW search
+returns ranked results without individual scores.
